@@ -34,10 +34,10 @@ Evaluated on a held-out test set using strict **patient-level splits** to preven
 > **Note:** AUC is the primary metric given the class imbalance (~2.5:1 benign:malignant). Sensitivity is measured at patch level — patient-level aggregation across all patches is expected to recover recall significantly.
 
 ### ROC Curve
-![ROC Curve](results/roc_curve.png)
+![ROC Curve](assets/roc.png)
 
 ### Confusion Matrix
-![Confusion Matrix](results/confusion_matrix.png)
+![Confusion Matrix](assets/confusion_matrix.png)
 
 ---
 
