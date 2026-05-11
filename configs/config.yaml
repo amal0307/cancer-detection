@@ -1,16 +1,16 @@
 project:
   name: "CancerNet"
   seed: 42
-  device: "cpu"
-  mixed_precision: false
+  device: "cuda"
+  mixed_precision: true
 
 data:
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   splits_dir: "data/splits"
   image_size: 224
-  num_workers: 0
-  pin_memory: false
+  num_workers: 4
+  pin_memory: true
 
 model:
   efficientnet:
@@ -24,6 +24,7 @@ model:
     freeze_epochs: 5
     embedding_dim: 768
   gnn:
+    enabled: false           # Disabled — SLIC superpixel is too slow on CPU
     num_node_features: 7
     hidden_dim: 256
     output_dim: 256
@@ -40,13 +41,14 @@ model:
     dropout: 0.4
 
 training:
-  mixed_precision: false
+  mixed_precision: true
+  compile_model: true
   epochs: 50
-  batch_size: 32
+  batch_size: 128
   accumulation_steps: 1
   optimizer:
     name: "adamw"
-    lr: 1e-4
+    lr: 4e-4
     weight_decay: 1e-4
     differential_lr:
       backbone_lr_factor: 0.1
@@ -76,6 +78,7 @@ augmentation:
 graph:
   n_neighbors: 8
   node_feature_method: "deep"
+  cache_graphs: true
 
 logging:
   log_dir: "logs"

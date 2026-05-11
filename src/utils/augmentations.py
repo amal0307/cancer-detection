@@ -12,7 +12,6 @@ def get_train_transforms(image_size=224):
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
         A.Affine(translate_percent=0.1, scale=(0.9, 1.1), rotate=(-45, 45), p=0.5),
-        A.ElasticTransform(alpha=120, sigma=6, p=0.3),
         A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
         A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.4),
         A.GaussNoise(p=0.3),

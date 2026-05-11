@@ -103,16 +103,28 @@ def main():
         gradcam_dir = Path(cfg.logging.results_dir) / "gradcam"
         gradcam_dir.mkdir(parents=True, exist_ok=True)
 
+        # Need raw numpy images for Grad-CAM overlay
+        from src.utils.augmentations import MEAN, STD
+        import numpy as np
+
         count = 0
         for batch in test_loader:
             for i in range(len(batch["label"])):
                 if count >= args.n_gradcam:
                     break
                 img_tensor = batch["image"][i]
-                img_np = batch["image_np"][i]
                 label = batch["label"][i].item()
-                if isinstance(img_np, torch.Tensor):
-                    img_np = img_np.numpy()
+
+                # Get image_np: from batch if available, else reconstruct from tensor
+                if "image_np" in batch:
+                    img_np = batch["image_np"][i]
+                    if isinstance(img_np, torch.Tensor):
+                        img_np = img_np.numpy()
+                else:
+                    # Reverse normalize to get displayable image
+                    img_arr = img_tensor.permute(1, 2, 0).numpy()
+                    img_arr = img_arr * np.array(STD) + np.array(MEAN)
+                    img_np = (np.clip(img_arr, 0, 1) * 255).astype(np.uint8)
 
                 save_gradcam_visualization(
                     model, img_tensor, img_np, label,

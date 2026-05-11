@@ -10,11 +10,12 @@ from typing import Optional, List, Tuple
 
 class IDCDataset(Dataset):
     def __init__(self, root_dir, split="train", transform=None,
-                 patient_ids=None, image_size=224):
+                 patient_ids=None, image_size=224, use_gnn=True):
         self.root_dir   = Path(root_dir)
         self.split      = split
         self.transform  = transform
         self.image_size = image_size
+        self.use_gnn    = use_gnn
         self.samples    = []  # (path, label, patient_id)
 
         for patient_dir in sorted(self.root_dir.iterdir()):
@@ -51,15 +52,17 @@ class IDCDataset(Dataset):
             image = torch.tensor(
                 img_np.transpose(2, 0, 1), dtype=torch.float32) / 255.0
 
-        # image_np also resized and fixed shape for GNN graph builder
-        img_np_small = cv2.resize(img_np, (50, 50))  # keep small for graph speed
-
-        return {
+        result = {
             "image":      image,
             "label":      torch.tensor(label, dtype=torch.long),
             "patient_id": pid,
-            "image_np":   img_np_small,   # [50, 50, 3] — consistent shape
         }
+
+        # Only compute image_np when GNN is enabled (cv2.resize is expensive)
+        if self.use_gnn:
+            result["image_np"] = cv2.resize(img_np, (50, 50))
+
+        return result
 
 
 def get_patient_level_splits(root_dir, val_ratio=0.15, test_ratio=0.15, seed=42, max_patients=None):
@@ -87,13 +90,13 @@ def get_patient_level_splits(root_dir, val_ratio=0.15, test_ratio=0.15, seed=42,
 
 def get_dataloaders(root_dir, train_transform, val_transform,
                     batch_size=32, num_workers=0, seed=42, image_size=224,
-                    max_patients=None):
+                    max_patients=None, use_gnn=True):
 
     train_ids, val_ids, test_ids = get_patient_level_splits(root_dir, seed=seed, max_patients=max_patients)
 
-    train_ds = IDCDataset(root_dir, "train", train_transform, train_ids, image_size)
-    val_ds   = IDCDataset(root_dir, "val",   val_transform,   val_ids,   image_size)
-    test_ds  = IDCDataset(root_dir, "test",  val_transform,   test_ids,  image_size)
+    train_ds = IDCDataset(root_dir, "train", train_transform, train_ids, image_size, use_gnn=use_gnn)
+    val_ds   = IDCDataset(root_dir, "val",   val_transform,   val_ids,   image_size, use_gnn=use_gnn)
+    test_ds  = IDCDataset(root_dir, "test",  val_transform,   test_ids,  image_size, use_gnn=use_gnn)
 
     # pin_memory only works with CUDA
     use_pin = torch.cuda.is_available()
@@ -103,6 +106,11 @@ def get_dataloaders(root_dir, train_transform, val_transform,
         num_workers=num_workers,
         pin_memory=use_pin,
     )
+
+    # Enable prefetching and persistent workers for faster data loading
+    if num_workers > 0:
+        common_kwargs["persistent_workers"] = True
+        common_kwargs["prefetch_factor"] = 4
 
     train_loader = DataLoader(train_ds, shuffle=True,  drop_last=True, **common_kwargs)
     val_loader   = DataLoader(val_ds,   shuffle=False, **common_kwargs)

@@ -68,12 +68,15 @@ class TTAEvaluator:
         all_probs, all_labels = [], []
 
         for batch in tqdm(dataloader, desc="TTA Evaluation"):
-            images_np = batch["image_np"]
             labels = batch["label"]
-
-            # Convert list of arrays
-            if isinstance(images_np, torch.Tensor):
-                images_np = [images_np[i].numpy() for i in range(images_np.shape[0])]
+            # Reconstruct original image from normalized tensor for TTA
+            from ..utils.augmentations import MEAN, STD
+            images_np = []
+            for img_tensor in batch["image"]:
+                img_arr = img_tensor.permute(1, 2, 0).numpy()
+                img_arr = img_arr * np.array(STD) + np.array(MEAN)
+                img_np = (np.clip(img_arr, 0, 1) * 255).astype(np.uint8)
+                images_np.append(img_np)
 
             probs = self.predict_batch(images_np)
             all_probs.append(probs)

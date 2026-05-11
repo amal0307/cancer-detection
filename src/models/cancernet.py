@@ -27,14 +27,19 @@ class CancerNet(nn.Module):
         self.vit_branch = ViTBranch(
             cfg.model.vit.backbone, cfg.model.vit.pretrained,
             cfg.model.vit.embedding_dim)
-        self.use_gnn = True
-        try:
-            self.gnn_branch = GNNBranch(
-                cfg.model.gnn.num_node_features, cfg.model.gnn.hidden_dim,
-                cfg.model.gnn.output_dim, cfg.model.gnn.num_layers, cfg.model.gnn.dropout)
-        except Exception:
-            self.use_gnn = False
+        self.use_gnn = cfg.model.gnn.get("enabled", True)
+        if self.use_gnn:
+            try:
+                self.gnn_branch = GNNBranch(
+                    cfg.model.gnn.num_node_features, cfg.model.gnn.hidden_dim,
+                    cfg.model.gnn.output_dim, cfg.model.gnn.num_layers, cfg.model.gnn.dropout)
+            except Exception:
+                self.use_gnn = False
+                self.gnn_branch = None
+                print("  ⚠️ GNN branch disabled (import failed)")
+        else:
             self.gnn_branch = None
+            print("  ⚡ GNN branch disabled via config (faster training)")
 
         fusion_dim = cfg.model.fusion.input_dim // 4
         self.fusion = BidirectionalCrossAttentionFusion(

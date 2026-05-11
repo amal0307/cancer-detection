@@ -10,7 +10,6 @@ from typing import Dict, Optional
 from ..models.cancernet import CancerNet
 from .losses import get_loss
 from ..evaluation.metrics import compute_metrics
-from ..preprocessing.graph_builder import build_batch_graphs
 
 
 class Trainer:
@@ -48,6 +47,30 @@ class Trainer:
         Path(cfg.logging.results_dir).mkdir(parents=True, exist_ok=True)
 
         self._init_logging()
+
+        # --- Performance optimizations ---
+
+        # torch.compile() for fused kernels (PyTorch 2.0+)
+        if cfg.training.get("compile_model", False) and hasattr(torch, "compile"):
+            print("Compiling model with torch.compile()...")
+            try:
+                self.model = torch.compile(self.model)
+                print("  ✅ Model compiled successfully")
+            except Exception as e:
+                print(f"  ⚠️ torch.compile() failed, running without: {e}")
+
+        # Enable TF32 on Ampere+ GPUs (A100, H100) for faster matmul
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            print("  ✅ TF32 and cuDNN benchmark enabled")
+
+        # GNN graph cache to avoid recomputing SLIC every epoch
+        self._graph_cache = {}
+        self._use_graph_cache = cfg.graph.get("cache_graphs", False)
+        if self._use_graph_cache:
+            print("  ✅ GNN graph caching enabled")
 
     def _build_optimizer(self):
         cfg = self.cfg.training
@@ -93,32 +116,47 @@ class Trainer:
     def _log(self, metrics: Dict, step: int):
         pass  # wandb disabled
 
+    def _build_graph_batch(self, batch, batch_idx):
+        """Build GNN graphs with optional caching to avoid repeated SLIC computation."""
+        if not self.model.use_gnn:
+            return None
+
+        # Check cache first
+        if self._use_graph_cache and batch_idx in self._graph_cache:
+            return self._graph_cache[batch_idx].to(self.device)
+
+        from ..preprocessing.graph_builder import build_batch_graphs
+
+        try:
+            images_np = batch["image_np"]
+            if isinstance(images_np, torch.Tensor):
+                images_np = [images_np[j].numpy() for j in range(images_np.shape[0])]
+            graph_batch = build_batch_graphs(
+                images_np,
+                n_neighbors=self.cfg.graph.n_neighbors,
+            )
+            # Cache on CPU to save GPU memory
+            if self._use_graph_cache:
+                self._graph_cache[batch_idx] = graph_batch.cpu()
+            return graph_batch.to(self.device)
+        except Exception:
+            return None
+
     def train_epoch(self, epoch: int) -> Dict:
         self.model.train()
         total_loss = 0.0
         all_logits, all_labels = [], []
         accumulation_steps = self.cfg.training.accumulation_steps
 
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)  # Slightly faster than zero_grad()
         start = time.time()
 
         for i, batch in enumerate(self.train_loader):
-            images = batch["image"].to(self.device)
-            labels = batch["label"].to(self.device)
+            images = batch["image"].to(self.device, non_blocking=True)
+            labels = batch["label"].to(self.device, non_blocking=True)
 
-            # Build GNN graph batch
-            graph_batch = None
-            if self.model.use_gnn:
-                try:
-                    images_np = batch["image_np"]
-                    if isinstance(images_np, torch.Tensor):
-                        images_np = [images_np[j].numpy() for j in range(images_np.shape[0])]
-                    graph_batch = build_batch_graphs(
-                        images_np,
-                        n_neighbors=self.cfg.graph.n_neighbors,
-                    ).to(self.device)
-                except Exception:
-                    graph_batch = None
+            # Build GNN graph batch (cached after first epoch)
+            graph_batch = self._build_graph_batch(batch, i)
 
             with torch.amp.autocast(
                 device_type=self.device.type,
@@ -136,7 +174,7 @@ class Trainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 self.scheduler.step()
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
                 self.global_step += 1
 
             total_loss += loss.item() * accumulation_steps
@@ -145,9 +183,11 @@ class Trainer:
 
             if i % self.cfg.logging.log_every_n_steps == 0:
                 elapsed = time.time() - start
+                samples_per_sec = (i + 1) * self.cfg.training.batch_size / elapsed if elapsed > 0 else 0
                 print(f"  Epoch {epoch} [{i}/{len(self.train_loader)}] "
                       f"loss={loss.item() * accumulation_steps:.4f} "
-                      f"elapsed={elapsed:.1f}s")
+                      f"elapsed={elapsed:.1f}s "
+                      f"({samples_per_sec:.0f} samples/s)")
 
         all_logits = torch.cat(all_logits)
         all_labels = torch.cat(all_labels)
@@ -162,8 +202,8 @@ class Trainer:
         all_logits, all_labels = [], []
 
         for batch in self.val_loader:
-            images = batch["image"].to(self.device)
-            labels = batch["label"].to(self.device)
+            images = batch["image"].to(self.device, non_blocking=True)
+            labels = batch["label"].to(self.device, non_blocking=True)
 
             with torch.amp.autocast(
                 device_type=self.device.type,
@@ -203,11 +243,15 @@ class Trainer:
         print(f"\n{'='*60}")
         print(f"  CancerNet Training")
         print(f"  Device     : {self.device}")
+        if torch.cuda.is_available():
+            print(f"  GPU        : {torch.cuda.get_device_name(0)}")
+            print(f"  GPU Memory : {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
         print(f"  AMP        : {self.use_amp}")
         print(f"  Epochs     : {cfg.epochs}")
         print(f"  Batch size : {cfg.batch_size}")
         print(f"  Train size : {len(self.train_loader.dataset)}")
         print(f"  Val size   : {len(self.val_loader.dataset)}")
+        print(f"  GNN graphs : {'cached' if self._use_graph_cache else 'recomputed each epoch'}")
         print(f"{'='*60}\n")
 
         for epoch in range(1, cfg.epochs + 1):
@@ -219,10 +263,13 @@ class Trainer:
                 self.optimizer = self._build_optimizer()
                 self.scheduler = self._build_scheduler()
 
+            epoch_start = time.time()
             print(f"\nEpoch {epoch}/{cfg.epochs}")
 
             train_metrics = self.train_epoch(epoch)
             val_metrics   = self.validate()
+
+            epoch_time = time.time() - epoch_start
 
             print(f"  Train | loss={train_metrics['loss']:.4f}  "
                   f"acc={train_metrics['accuracy']:.4f}  "
@@ -232,6 +279,8 @@ class Trainer:
                   f"auc={val_metrics['auc']:.4f}  "
                   f"sens={val_metrics['sensitivity']:.4f}  "
                   f"spec={val_metrics['specificity']:.4f}")
+            print(f"  Time  | {epoch_time:.1f}s "
+                  f"(~{epoch_time * (cfg.epochs - epoch) / 60:.1f} min remaining)")
 
             val_auc  = val_metrics["auc"]
             is_best  = val_auc > self.best_auc

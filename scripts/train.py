@@ -26,6 +26,8 @@ def main():
 
     max_patients = cfg.data.get("max_patients", None)
 
+    use_gnn = cfg.model.gnn.get("enabled", True)
+
     train_loader, val_loader, test_loader = get_dataloaders(
         root_dir=cfg.data.raw_dir,
         train_transform=get_train_transforms(cfg.data.image_size),
@@ -35,6 +37,7 @@ def main():
         seed=cfg.project.seed,
         image_size=cfg.data.image_size,
         max_patients=max_patients,
+        use_gnn=use_gnn,
     )
 
     model = CancerNet(cfg)
