@@ -17,11 +17,14 @@ env/
 data/raw/
 data/processed/
 data/splits/
+data/breakhis/
 
-# Training outputs
+# Training outputs — ignore heavy/regenerable, keep the small records
 checkpoints/
-logs/
-results/
+results/gradcam/
+logs/*.log
+# Tracked: logs/*_history.csv, logs/*_history.json,
+# results/metrics.json, results/training_summary.json, results/*.png
 
 # IDE
 .vscode/
@@ -38,3 +41,8 @@ Thumbs.db
 
 # Archives
 *.zip
+
+data/breakhis_stain/
+baseline_run1/*.pth
+*.docx
+*.pptx
