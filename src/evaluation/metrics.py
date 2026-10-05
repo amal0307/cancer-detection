@@ -78,3 +78,26 @@ def plot_roc_curve(logits, labels, save_path="results/roc_curve.png"):
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ROC curve saved to {save_path}")
+
+
+def plot_confusion_matrix(metrics, save_path="results/confusion_matrix.png", threshold=None):
+    """Plot and save a confusion matrix from a compute_metrics() result dict."""
+    cm = np.array([[metrics['tn'], metrics['fp']],
+                   [metrics['fn'], metrics['tp']]], dtype=int)
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(cm, cmap='Blues')
+    title = "Confusion Matrix" + (f" (Thresh={threshold:.3f})" if threshold is not None else "")
+    ax.set_title(title, fontsize=13)
+    ax.set_xticks([0, 1]); ax.set_xticklabels(['Benign', 'Malignant'])
+    ax.set_yticks([0, 1]); ax.set_yticklabels(['Benign', 'Malignant'])
+    ax.set_xlabel('Predicted label'); ax.set_ylabel('True label')
+    cutoff = cm.max() / 2
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, str(cm[i, j]), ha='center', va='center',
+                    color='white' if cm[i, j] > cutoff else 'black', fontsize=14)
+    fig.colorbar(im)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  Confusion matrix saved to {save_path}")

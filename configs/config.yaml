@@ -1,51 +1,56 @@
 project:
   name: "CancerNet"
   seed: 42
-  device: "cuda"
-  mixed_precision: true
+  device: "cuda"           # auto-falls back to CPU when no GPU is present
+  mixed_precision: true    # AMP only activates on CUDA; ignored on CPU
 
 data:
-  raw_dir: "data/raw"
+  dataset: "breakhis"              # "breakhis" | "idc"  -> selects the dataloader
+  breakhis_dir: "data/breakhis_stain"   # Macenko stain-normalized (scripts/precompute_stain.py)
+  # breakhis_dir: "data/breakhis"       # original, un-normalized images
+  magnification: null              # e.g. "40" to use one magnification only; null = all
+  raw_dir: "data/raw"              # IDC data (used only when dataset: idc)
   processed_dir: "data/processed"
   splits_dir: "data/splits"
   image_size: 224
   num_workers: 4
   pin_memory: true
+  max_patients: null               # idc subset mode only; ignored for breakhis
 
 model:
   efficientnet:
-    backbone: "efficientnet_b4"
+    backbone: "efficientnet_b0"    # was efficientnet_b4 — lighter CNN branch for CPU
     pretrained: true
-    freeze_epochs: 5
-    embedding_dim: 1792
+    freeze_epochs: 3
+    embedding_dim: 512             # projection dim (branch projects from native 1280)
   vit:
-    backbone: "vit_base_patch16_224"
+    backbone: "vit_tiny_patch16_224"  # was vit_base — lighter transformer branch
     pretrained: true
-    freeze_epochs: 5
-    embedding_dim: 768
+    freeze_epochs: 3
+    embedding_dim: 256             # projection dim (branch projects from native 192)
   gnn:
-    enabled: false           # Disabled — SLIC superpixel is too slow on CPU
+    enabled: false                 # disabled — SLIC superpixel too slow on CPU
     num_node_features: 7
     hidden_dim: 256
     output_dim: 256
     num_layers: 3
     dropout: 0.3
   fusion:
-    input_dim: 2816
+    input_dim: 1024                # -> fusion_dim = input_dim // 4 = 256 (256/8 heads = 32)
     num_heads: 8
     temperature_learnable: true
     dropout: 0.3
   classifier:
-    hidden_dims: [512, 128]
+    hidden_dims: [256, 64]
     num_classes: 2
     dropout: 0.4
 
 training:
   mixed_precision: true
-  compile_model: true
-  epochs: 50
-  batch_size: 128
-  accumulation_steps: 1
+  compile_model: false             # torch.compile off — no benefit on CPU, adds warmup
+  epochs: 20
+  batch_size: 32                   # CPU-friendly; effective batch 128 via accumulation
+  accumulation_steps: 4
   optimizer:
     name: "adamw"
     lr: 4e-4
@@ -54,23 +59,23 @@ training:
       backbone_lr_factor: 0.1
   scheduler:
     name: "cosine_warmup"
-    warmup_epochs: 5
+    warmup_epochs: 2
     min_lr: 1e-6
   loss:
     name: "focal"
-    alpha: 0.75
+    alpha: 0.25
     gamma: 2.0
     label_smoothing: 0.1
   early_stopping:
-    patience: 10
+    patience: 5
     monitor: "val_auc"
 
 augmentation:
   train:
-    stain_normalize: true
+    stain_normalize: false         # not applied in the training path (kept for reference)
     stain_method: "macenko"
   val:
-    stain_normalize: true
+    stain_normalize: false
   tta:
     enabled: true
     n_augments: 10

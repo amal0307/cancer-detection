@@ -1,0 +1,7 @@
+{
+  "run_name": "run_20260804_182108",
+  "timestamp": "2026-08-04T20:35:15",
+  "best_val_auc": 0.960725,
+  "epochs_run": 17.0,
+  "total_epochs": 20.0
+}

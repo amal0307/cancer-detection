@@ -21,7 +21,7 @@ from src.utils.augmentations import get_train_transforms, get_val_transforms
 from src.utils.seed import set_seed
 from src.evaluation.metrics import (
     compute_metrics, print_evaluation_report,
-    find_optimal_threshold, plot_roc_curve,
+    find_optimal_threshold, plot_roc_curve, plot_confusion_matrix,
 )
 
 
@@ -42,7 +42,9 @@ def main():
 
     # Load checkpoint
     print(f"Loading checkpoint: {args.checkpoint}")
-    ckpt = torch.load(args.checkpoint, map_location=device)
+    # weights_only=False: our own checkpoints store a metrics dict with numpy scalars,
+    # which PyTorch 2.6+ rejects under the new weights_only=True default.
+    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
     model = CancerNet(cfg)
     model.load_state_dict(ckpt["model_state"])
@@ -51,15 +53,28 @@ def main():
     print(f"Checkpoint from epoch {ckpt.get('epoch', '?')}, "
           f"val AUC={ckpt.get('metrics', {}).get('auc', '?'):.4f}")
 
-    # Dataloaders
-    _, _, test_loader = get_dataloaders(
-        root_dir=cfg.data.raw_dir,
-        train_transform=get_train_transforms(cfg.data.image_size),
-        val_transform=get_val_transforms(cfg.data.image_size),
-        batch_size=cfg.training.batch_size,
-        num_workers=cfg.data.num_workers,
-        seed=cfg.project.seed,
-    )
+    # Dataloaders (same dataset switch as training)
+    if cfg.data.get("dataset", "idc").lower() == "breakhis":
+        from src.utils.breakhis import get_breakhis_dataloaders
+        _, _, test_loader = get_breakhis_dataloaders(
+            root_dir=cfg.data.breakhis_dir,
+            train_transform=get_train_transforms(cfg.data.image_size),
+            val_transform=get_val_transforms(cfg.data.image_size),
+            batch_size=cfg.training.batch_size,
+            num_workers=cfg.data.num_workers,
+            seed=cfg.project.seed,
+            image_size=cfg.data.image_size,
+            magnification=cfg.data.get("magnification", None),
+        )
+    else:
+        _, _, test_loader = get_dataloaders(
+            root_dir=cfg.data.raw_dir,
+            train_transform=get_train_transforms(cfg.data.image_size),
+            val_transform=get_val_transforms(cfg.data.image_size),
+            batch_size=cfg.training.batch_size,
+            num_workers=cfg.data.num_workers,
+            seed=cfg.project.seed,
+        )
 
     # Standard evaluation
     print("\nRunning standard evaluation...")
@@ -87,6 +102,28 @@ def main():
     # ROC curve
     os.makedirs(cfg.logging.results_dir, exist_ok=True)
     plot_roc_curve(all_logits, all_labels, f"{cfg.logging.results_dir}/roc_curve.png")
+
+    # Confusion matrix + machine-readable metrics.json
+    import json
+    from datetime import datetime
+    plot_confusion_matrix(opt_metrics, f"{cfg.logging.results_dir}/confusion_matrix.png",
+                          threshold=opt_thresh)
+    results_payload = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "checkpoint": args.checkpoint,
+        "checkpoint_epoch": ckpt.get("epoch"),
+        "dataset": cfg.data.get("dataset", "idc"),
+        "test_images": int(all_labels.numel()),
+        "n_benign": int((all_labels == 0).sum().item()),
+        "n_malignant": int((all_labels == 1).sum().item()),
+        "optimal_threshold": round(float(opt_thresh), 4),
+        "metrics_at_0.5": {k: round(float(v), 6) for k, v in metrics.items()},
+        "metrics_at_optimal": {k: round(float(v), 6) for k, v in opt_metrics.items()},
+    }
+    metrics_path = os.path.join(cfg.logging.results_dir, "metrics.json")
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(results_payload, f, indent=2)
+    print(f"\nMetrics saved to {metrics_path}")
 
     # TTA evaluation
     if args.tta:

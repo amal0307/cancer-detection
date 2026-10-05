@@ -12,8 +12,11 @@ def get_train_transforms(image_size=224):
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
         A.Affine(translate_percent=0.1, scale=(0.9, 1.1), rotate=(-45, 45), p=0.5),
-        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-        A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.4),
+        # Stain/colour robustness. Kept moderate on purpose: images are already
+        # Macenko stain-normalized, so overly aggressive jitter would reintroduce
+        # the very staining variation the normalization removes.
+        A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.15, p=0.7),
+        A.HueSaturationValue(hue_shift_limit=25, sat_shift_limit=35, val_shift_limit=25, p=0.5),
         A.GaussNoise(p=0.3),
         A.GaussianBlur(blur_limit=(3, 5), p=0.2),
         A.CLAHE(clip_limit=4.0, tile_grid_size=(8, 8), p=0.4),

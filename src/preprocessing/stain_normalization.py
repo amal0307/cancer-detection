@@ -48,9 +48,20 @@ class MacenkoNormalizer:
 
 
 class StainNormalizationPipeline:
-    def __init__(self, method: str = "macenko"):
+    """Macenko stain normalization.
+
+    Pass `reference_image` (a real H&E slide from the TRAINING split) so every
+    image is mapped onto a genuine staining target. The synthetic fallback below
+    is only a last resort — it is not a real tissue stain profile and gives a
+    meaningless normalization target.
+    """
+
+    def __init__(self, method: str = "macenko", reference_image: Optional[np.ndarray] = None):
         self.normalizer = MacenkoNormalizer()
-        self._fit_canonical_reference()
+        if reference_image is not None:
+            self.normalizer.fit(reference_image)
+        else:
+            self._fit_canonical_reference()
 
     def _fit_canonical_reference(self):
         ref = np.zeros((100, 100, 3), dtype=np.uint8)

@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-08-04T21:55:45",
+  "checkpoint": "checkpoints/best_model.pth",
+  "checkpoint_epoch": 12,
+  "dataset": "breakhis",
+  "test_images": 1282,
+  "n_benign": 250,
+  "n_malignant": 1032,
+  "optimal_threshold": 0.8851,
+  "metrics_at_0.5": {
+    "accuracy": 0.767551,
+    "auc": 0.817345,
+    "sensitivity": 0.793605,
+    "specificity": 0.66,
+    "f1": 0.846074,
+    "mcc": 0.394146,
+    "tp": 819.0,
+    "tn": 165.0,
+    "fp": 85.0,
+    "fn": 213.0
+  },
+  "metrics_at_optimal": {
+    "accuracy": 0.568643,
+    "auc": 0.817345,
+    "sensitivity": 0.487403,
+    "specificity": 0.904,
+    "f1": 0.645285,
+    "mcc": 0.315178,
+    "tp": 503.0,
+    "tn": 226.0,
+    "fp": 24.0,
+    "fn": 529.0
+  }
+}

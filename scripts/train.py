@@ -24,21 +24,33 @@ def main():
     device = torch.device(cfg.project.device if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    max_patients = cfg.data.get("max_patients", None)
-
     use_gnn = cfg.model.gnn.get("enabled", True)
+    dataset_type = cfg.data.get("dataset", "idc").lower()
 
-    train_loader, val_loader, test_loader = get_dataloaders(
-        root_dir=cfg.data.raw_dir,
-        train_transform=get_train_transforms(cfg.data.image_size),
-        val_transform=get_val_transforms(cfg.data.image_size),
-        batch_size=cfg.training.batch_size,
-        num_workers=cfg.data.num_workers,
-        seed=cfg.project.seed,
-        image_size=cfg.data.image_size,
-        max_patients=max_patients,
-        use_gnn=use_gnn,
-    )
+    if dataset_type == "breakhis":
+        from src.utils.breakhis import get_breakhis_dataloaders
+        train_loader, val_loader, test_loader = get_breakhis_dataloaders(
+            root_dir=cfg.data.breakhis_dir,
+            train_transform=get_train_transforms(cfg.data.image_size),
+            val_transform=get_val_transforms(cfg.data.image_size),
+            batch_size=cfg.training.batch_size,
+            num_workers=cfg.data.num_workers,
+            seed=cfg.project.seed,
+            image_size=cfg.data.image_size,
+            magnification=cfg.data.get("magnification", None),
+        )
+    else:
+        train_loader, val_loader, test_loader = get_dataloaders(
+            root_dir=cfg.data.raw_dir,
+            train_transform=get_train_transforms(cfg.data.image_size),
+            val_transform=get_val_transforms(cfg.data.image_size),
+            batch_size=cfg.training.batch_size,
+            num_workers=cfg.data.num_workers,
+            seed=cfg.project.seed,
+            image_size=cfg.data.image_size,
+            max_patients=cfg.data.get("max_patients", None),
+            use_gnn=use_gnn,
+        )
 
     model = CancerNet(cfg)
     trainer = Trainer(model, cfg, train_loader, val_loader, device)

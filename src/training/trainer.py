@@ -10,6 +10,7 @@ from typing import Dict, Optional
 from ..models.cancernet import CancerNet
 from .losses import get_loss
 from ..evaluation.metrics import compute_metrics
+from ..utils.run_logger import RunLogger
 
 
 class Trainer:
@@ -111,7 +112,9 @@ class Trainer:
 
     def _init_logging(self):
         self.use_wandb = False
-        print("WandB disabled — logging to console only.")
+        self.run_logger = RunLogger(self.cfg.logging.log_dir, self.cfg.logging.results_dir)
+        print(f"Logging run -> {self.run_logger.run_name} "
+              f"(history: {self.run_logger.history_csv})")
 
     def _log(self, metrics: Dict, step: int):
         pass  # wandb disabled
@@ -282,6 +285,10 @@ class Trainer:
             print(f"  Time  | {epoch_time:.1f}s "
                   f"(~{epoch_time * (cfg.epochs - epoch) / 60:.1f} min remaining)")
 
+            current_lr = self.optimizer.param_groups[-1]["lr"]
+            self.run_logger.log_epoch(epoch, train_metrics, val_metrics,
+                                      lr=current_lr, epoch_time=epoch_time)
+
             val_auc  = val_metrics["auc"]
             is_best  = val_auc > self.best_auc
 
@@ -305,3 +312,9 @@ class Trainer:
         print(f"  Checkpoint saved to : "
               f"{self.cfg.logging.checkpoint_dir}/best_model.pth")
         print(f"{'='*60}\n")
+
+        self.run_logger.save_metrics(
+            {"best_val_auc": self.best_auc, "epochs_run": epoch,
+             "total_epochs": cfg.epochs},
+            name="training_summary.json",
+        )
