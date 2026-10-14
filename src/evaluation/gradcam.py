@@ -16,7 +16,7 @@ class GradCAM:
     Gradient-weighted Class Activation Mapping for the CNN branch.
     Highlights tissue regions that drove the malignant/benign decision.
     """
-    def __init__(self, model, target_layer_name: str = "cnn_branch.backbone.blocks"):
+    def __init__(self, model, target_layer_name: str = "cnn_branch.backbone.conv_head"):
         self.model = model
         self.gradients = None
         self.activations = None
@@ -24,11 +24,18 @@ class GradCAM:
         self._register_hooks(target_layer_name)
 
     def _register_hooks(self, layer_name: str):
-        # Find target layer by name
         target = None
         for name, module in self.model.named_modules():
-            if layer_name in name:
+            if name == layer_name or name.endswith("." + layer_name):
                 target = module
+                break
+
+        if target is None:
+            # Fallback to substring search
+            for name, module in self.model.named_modules():
+                if layer_name in name and ("conv" in name or "head" in name):
+                    target = module
+                    break
 
         if target is None:
             print(f"Warning: layer '{layer_name}' not found. GradCAM disabled.")
@@ -41,7 +48,7 @@ class GradCAM:
             self.gradients = grad_output[0].detach()
 
         self.hook_handles.append(target.register_forward_hook(forward_hook))
-        self.hook_handles.append(target.register_backward_hook(backward_hook))
+        self.hook_handles.append(target.register_full_backward_hook(backward_hook))
 
     def generate(
         self,

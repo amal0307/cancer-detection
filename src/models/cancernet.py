@@ -1,7 +1,10 @@
 import torch, torch.nn as nn, torch.nn.functional as F
 from .efficientnet_branch import EfficientNetBranch
 from .vit_branch import ViTBranch
-from .gnn_branch import GNNBranch
+try:
+    from .gnn_branch import GNNBranch
+except ImportError:
+    GNNBranch = None
 from .fusion import BidirectionalCrossAttentionFusion
 
 class ClassificationHead(nn.Module):
@@ -36,10 +39,10 @@ class CancerNet(nn.Module):
             except Exception:
                 self.use_gnn = False
                 self.gnn_branch = None
-                print("  ⚠️ GNN branch disabled (import failed)")
+                print("  [WARN] GNN branch disabled (import failed)")
         else:
             self.gnn_branch = None
-            print("  ⚡ GNN branch disabled via config (faster training)")
+            print("  [INFO] GNN branch disabled via config (faster training)")
 
         fusion_dim = cfg.model.fusion.input_dim // 4
         self.fusion = BidirectionalCrossAttentionFusion(
